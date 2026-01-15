@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { ZodTypeProvider } from 'fastify-type-provider-zod'
+import { documentRateLimitConfig } from '@/config/rate-limit.js'
 import {
 	ErrorResponseSchema,
 	RetrieveResponseSchema,
@@ -14,6 +15,12 @@ export async function upsertDocument(app: FastifyInstance) {
 	app.withTypeProvider<ZodTypeProvider>().post(
 		'/documents',
 		{
+			config: {
+				rateLimit: {
+					max: documentRateLimitConfig.max,
+					timeWindow: documentRateLimitConfig.timeWindow,
+				},
+			},
 			schema: {
 				summary: 'Upload and process a law document',
 				tags: ['Documents'],
@@ -57,6 +64,12 @@ export async function retrieveDocument(app: FastifyInstance) {
 	app.withTypeProvider<ZodTypeProvider>().get(
 		'/documents',
 		{
+			config: {
+				rateLimit: {
+					max: documentRateLimitConfig.max,
+					timeWindow: documentRateLimitConfig.timeWindow,
+				},
+			},
 			schema: {
 				summary: 'Retrieve legal context from Pinecone for AI usage',
 				tags: ['Documents'],

@@ -22,7 +22,9 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@fastify/caching": "^9.0.3",
     "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^10.3.0",
     "@fastify/swagger": "^9.6.1",
     "@langchain/core": "^1.1.15",
     "@langchain/groq": "^1.0.3",

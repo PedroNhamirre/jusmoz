@@ -1,4 +1,5 @@
 import { fastifyCors } from '@fastify/cors'
+import rateLimit from '@fastify/rate-limit'
 import { fastifySwagger } from '@fastify/swagger'
 import ScalarApiReference from '@scalar/fastify-api-reference'
 import { fastify } from 'fastify'
@@ -8,6 +9,7 @@ import {
 	type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
 import { env } from '@/config/env.js'
+import { defaultRateLimitConfig } from '@/config/rate-limit.js'
 import { swaggerOptions } from '@/config/swagger.js'
 import { registerRoutes } from '@/controller/index.js'
 
@@ -18,7 +20,24 @@ const app = fastify({
 app.setValidatorCompiler(validatorCompiler)
 app.setSerializerCompiler(serializerCompiler)
 
-app.register(fastifyCors, { origin: true })
+app.register(fastifyCors, {
+	origin: [
+		'http://localhost:3000',
+		'http://localhost:5173',
+		'http://127.0.0.1:3000',
+	],
+	methods: ['POST', 'GET', 'OPTIONS'],
+	allowedHeaders: ['Content-Type', 'x-api-key'],
+})
+
+app.register(rateLimit, {
+	max: defaultRateLimitConfig.max,
+	timeWindow: defaultRateLimitConfig.timeWindow,
+	cache: 10000,
+	allowList: ['127.0.0.1'],
+	redis: undefined,
+})
+
 app.register(fastifySwagger, swaggerOptions)
 
 app.register(ScalarApiReference, {

@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import type { ZodTypeProvider } from 'fastify-type-provider-zod'
+import { chatRateLimitConfig } from '@/config/rate-limit.js'
 import {
 	ChatResponseSchema,
 	ErrorResponseSchema,
 	SearchQuerySchema,
 } from '@/controller/schemas.js'
+import { cacheManager } from '@/lib/cache.js'
 import { chatModel } from '@/lib/langchain.js'
 import { PineconeService } from '@/services/pinecone-service.js'
 
@@ -12,6 +14,12 @@ export async function chatWithAI(app: FastifyInstance) {
 	app.withTypeProvider<ZodTypeProvider>().post(
 		'/chat',
 		{
+			config: {
+				rateLimit: {
+					max: chatRateLimitConfig.max,
+					timeWindow: chatRateLimitConfig.timeWindow,
+				},
+			},
 			schema: {
 				summary: 'Chat with Mozambican Laws using AI',
 				tags: ['Chat'],
@@ -24,6 +32,17 @@ export async function chatWithAI(app: FastifyInstance) {
 		},
 		async (request, reply) => {
 			const { question } = request.body
+
+			const cacheKey = `chat:${question}`
+			const cachedResponse = cacheManager.get<{
+				answer: string
+				sources: string[]
+			}>(cacheKey)
+			if (cachedResponse) {
+				reply.header('X-Cache', 'HIT')
+				return reply.status(200).send(cachedResponse)
+			}
+			reply.header('X-Cache', 'MISS')
 			try {
 				const contextDocs = await PineconeService.retrieveRelevantDocs(question)
 				const contextText = contextDocs
@@ -47,12 +66,16 @@ export async function chatWithAI(app: FastifyInstance) {
 					['human', question],
 				])
 
-				return reply.status(200).send({
+				const result = {
 					answer: String(response.content),
 					sources: contextDocs.map((doc) =>
 						String(doc.metadata.source || 'Unknown'),
 					),
-				})
+				}
+
+				cacheManager.set(cacheKey, result, 300000)
+
+				return reply.status(200).send(result)
 			} catch (error) {
 				app.log.error(error)
 				return reply.status(500).send({
