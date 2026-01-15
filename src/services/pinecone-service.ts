@@ -56,6 +56,40 @@ export const PineconeService = {
 	): Promise<Document[]> {
 		const vectorStore = await getVectorStore()
 
-		return await vectorStore.similaritySearch(query, limit)
+		// Buscar mais documentos inicialmente (oversampling)
+		const oversamplingFactor = 1.5
+		const initialLimit = Math.ceil(limit * oversamplingFactor)
+
+		const docs = await vectorStore.similaritySearch(query, initialLimit)
+
+		// Reranking simples: priorizar documentos com números específicos (artigos, porcentagens)
+		const rankedDocs = docs.map((doc) => {
+			let score = 0
+
+			// Bonus para documentos que contêm números de artigos
+			if (/artigo\s+\d+|article\s+\d+/i.test(doc.pageContent)) {
+				score += 2
+			}
+
+			// Bonus para documentos com porcentagens e valores específicos
+			if (/\d+%|\d+\s*(por\s*cento|percent)/i.test(doc.pageContent)) {
+				score += 1.5
+			}
+
+			// Bonus para documentos com parágrafos numerados
+			if (
+				/par[áa]grafo\s+\d+|paragraph\s+\d+|n[º°]\s*\d+/i.test(doc.pageContent)
+			) {
+				score += 1
+			}
+
+			return { doc, score }
+		})
+
+		// Ordenar por score e retornar os melhores
+		return rankedDocs
+			.sort((a, b) => b.score - a.score)
+			.slice(0, limit)
+			.map((item) => item.doc)
 	},
 }
