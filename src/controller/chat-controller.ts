@@ -62,8 +62,10 @@ export async function chatWithAI(app: FastifyInstance) {
                         - Se a informação não estiver no contexto, explique que não possui dados sobre isso no momento
                         - Responda no MESMO IDIOMA da pergunta do usuário (Português ou Inglês)
                         - Seja claro, preciso e profissional
-                        - SEMPRE verifique e cite os artigos corretos das leis mencionadas no contexto
-                        - Se houver referência a artigos, confirme que está usando o artigo correto baseado no contexto fornecido
+                        - **OBRIGATÓRIO: SEMPRE cite os artigos, números e diplomas legais específicos** (ex: "Artigo 45 da Lei do Trabalho", "Artigo 123 do Código Civil")
+                        - Inclua a fundamentação legal com referências específicas aos artigos relevantes
+                        - Se houver múltiplos artigos aplicáveis, mencione todos
+                        - A citação legal deve aparecer naturalmente na explicação, não apenas no final
 
                         CONTEXTO LEGAL:
                         ${contextText}`,
