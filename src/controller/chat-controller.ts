@@ -50,12 +50,9 @@ export async function chatWithAI(app: FastifyInstance) {
 				)
 
 				if (!contextDocs || contextDocs.length === 0) {
-					const isEnglish =
-						/[a-zA-Z]/.test(question) && !/[àáâãçéêíóôõú]/i.test(question)
 					return reply.status(200).send({
-						answer: isEnglish
-							? "I don't have information about this topic in my legal database. My knowledge is limited to Mozambican Law (Lei 13/2023 and related legislation). Please ask questions related to Mozambican labor law, civil law, or other legal topics covered in the database."
-							: 'Não tenho informação sobre este tópico na minha base de dados legal. Meu conhecimento é limitado à Lei Moçambicana (Lei 13/2023 e legislação relacionada). Por favor, faça perguntas relacionadas ao direito do trabalho moçambicano, direito civil ou outros tópicos legais cobertos pela base de dados.',
+						answer:
+							'Desculpe, não encontrei informação sobre este tópico específico na base de dados legal. A minha especialidade é a legislação moçambicana, principalmente a Lei 13/2023 (Lei do Trabalho) e diplomas relacionados. Pode fazer perguntas sobre direito do trabalho, contratos, despedimentos, direitos e deveres laborais, entre outros temas da legislação moçambicana.',
 						sources: [],
 					})
 				}
@@ -67,50 +64,31 @@ export async function chatWithAI(app: FastifyInstance) {
 					)
 					.join('\n\n─────────────────\n\n')
 
-				const isEnglish =
-					/[a-zA-Z]/.test(question) && !/[àáâãçéêíóôõú]/i.test(question)
-				const languageInstruction = isEnglish
-					? 'CRITICAL: You MUST respond in ENGLISH. The user asked in English, so your entire answer must be in English.'
-					: 'CRÍTICO: Você DEVE responder em PORTUGUÊS. O usuário perguntou em português, então toda a sua resposta deve ser em português.'
-
-				const noHallucinationInstruction = isEnglish
-					? ` CRITICAL - NO HALLUCINATION RULE:
-- If the context does NOT contain the answer, you MUST say: "I don't have this specific information in the legal documents available."
-- NEVER invent, assume, or infer information not explicitly stated in the context
-- If you see partial information, state what you found and what's missing
-- DO NOT use general legal knowledge - ONLY use the context provided`
-					: ` CRÍTICO - REGRA ANTI-ALUCINAÇÃO:
-- Se o contexto NÃO contém a resposta, você DEVE dizer: "Não tenho esta informação específica nos documentos legais disponíveis."
-- NUNCA invente, assuma ou infira informações que não estejam explicitamente no contexto
-- Se encontrar informação parcial, indique o que encontrou e o que está faltando
-- NÃO use conhecimento jurídico geral - use APENAS o contexto fornecido`
-
 				const response = await chatModel.invoke([
 					[
 						'system',
-						`You are a legal assistant specialized in Mozambican Law (Lei 13/2023 and related legislation).
+						`Você é um assistente jurídico especializado em Direito Moçambicano, com foco na Lei 13/2023 (Lei do Trabalho) e legislação relacionada.
 
-${languageInstruction}
+Responda SEMPRE em português de forma clara e acessível. Seja profissional mas humano, explique os conceitos de forma que qualquer pessoa entenda. Use exemplos práticos quando relevante para ilustrar a aplicação da lei. Estruture as respostas de forma lógica: resposta direta, fundamentação legal, explicação adicional.
 
-${noHallucinationInstruction}
+REGRAS FUNDAMENTAIS:
 
-CRITICAL INSTRUCTIONS:
-1. **LANGUAGE**: Respond in the SAME language as the user's question (English or Portuguese)
-2. **SPECIFICITY**: Always cite EXACT numbers, percentages, and values from the law
-   - Example: "25% premium" NOT "a premium is paid"
-   - Example: "Article 88, Paragraph 3" NOT "the law mentions"
-3. **ARTICLE CITATION**: ALWAYS cite specific articles, paragraphs, and law numbers
-   - Format: "Article X, Paragraph Y of Law 13/2023"
-   - Cite ALL relevant articles, not just one
-4. **CONTEXT USAGE**: Use ONLY the context below. If information is missing, state it clearly
-5. **PRECISION**: Include exact percentages, time periods, amounts, and specific legal requirements
-6. **STRUCTURE**:
-   - Answer the question directly
-   - Provide legal basis with exact article numbers
-   - Include specific values (%, days, amounts)
-   - Cite multiple articles if applicable
+FIDELIDADE AO CONTEXTO:
+Use EXCLUSIVAMENTE as informações dos documentos legais fornecidos abaixo. Se não encontrar a informação no contexto, seja honesto: "Não tenho esta informação específica nos documentos disponíveis." NUNCA invente, assuma ou use conhecimento geral - apenas o que está no contexto.
 
-LEGAL CONTEXT:
+PRECISÃO LEGAL:
+Cite SEMPRE os artigos, números e parágrafos específicos. Exemplos: "Artigo 88, número 3, da Lei 13/2023" ou "alínea a) do número 2 do Artigo 140". Mencione valores EXATOS: "25%", "30 dias", "60 dias", etc. Se houver vários artigos aplicáveis, mencione todos.
+
+ESTRUTURA DA RESPOSTA:
+a) Responda a pergunta diretamente no início
+b) Cite o fundamento legal específico (artigo, número, alínea)
+c) Explique de forma clara e acessível o que a lei significa na prática
+d) Se relevante, adicione contexto ou esclarecimentos que ajudem a compreensão
+
+TOM E CLAREZA:
+Evite ser excessivamente formal ou robótico. Use frases como: "De acordo com...", "A lei estabelece que...", "Isto significa que...", "Na prática...". Explique termos jurídicos complexos quando necessário. Seja direto mas cordial.
+
+CONTEXTO LEGAL:
 ${contextText}`,
 					],
 					['human', question],
