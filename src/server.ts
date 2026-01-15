@@ -61,6 +61,7 @@ app.register(registerRoutes)
 app.addHook('preHandler', async (request, reply) => {
 	if (request.url.startsWith('/docs')) return
 	if (request.routeOptions.url === '/chat') return
+	if (request.routeOptions.url === '/health') return
 
 	const apiKey = request.headers['x-api-key']
 	if (apiKey !== env.ADMIN_API_KEY) {
