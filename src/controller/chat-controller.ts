@@ -44,13 +44,22 @@ export async function chatWithAI(app: FastifyInstance) {
 			}
 			reply.header('X-Cache', 'MISS')
 			try {
-				// Buscar mais documentos para cobrir múltiplos artigos relacionados
 				const contextDocs = await PineconeService.retrieveRelevantDocs(
 					question,
 					8,
 				)
 
-				// Formatar contexto de forma estruturada
+				if (!contextDocs || contextDocs.length === 0) {
+					const isEnglish =
+						/[a-zA-Z]/.test(question) && !/[àáâãçéêíóôõú]/i.test(question)
+					return reply.status(200).send({
+						answer: isEnglish
+							? "I don't have information about this topic in my legal database. My knowledge is limited to Mozambican Law (Lei 13/2023 and related legislation). Please ask questions related to Mozambican labor law, civil law, or other legal topics covered in the database."
+							: 'Não tenho informação sobre este tópico na minha base de dados legal. Meu conhecimento é limitado à Lei Moçambicana (Lei 13/2023 e legislação relacionada). Por favor, faça perguntas relacionadas ao direito do trabalho moçambicano, direito civil ou outros tópicos legais cobertos pela base de dados.',
+						sources: [],
+					})
+				}
+
 				const contextText = contextDocs
 					.map(
 						(doc, index) =>
@@ -58,12 +67,23 @@ export async function chatWithAI(app: FastifyInstance) {
 					)
 					.join('\n\n─────────────────\n\n')
 
-				// Detectar idioma da pergunta
 				const isEnglish =
 					/[a-zA-Z]/.test(question) && !/[àáâãçéêíóôõú]/i.test(question)
 				const languageInstruction = isEnglish
 					? 'CRITICAL: You MUST respond in ENGLISH. The user asked in English, so your entire answer must be in English.'
 					: 'CRÍTICO: Você DEVE responder em PORTUGUÊS. O usuário perguntou em português, então toda a sua resposta deve ser em português.'
+
+				const noHallucinationInstruction = isEnglish
+					? ` CRITICAL - NO HALLUCINATION RULE:
+- If the context does NOT contain the answer, you MUST say: "I don't have this specific information in the legal documents available."
+- NEVER invent, assume, or infer information not explicitly stated in the context
+- If you see partial information, state what you found and what's missing
+- DO NOT use general legal knowledge - ONLY use the context provided`
+					: ` CRÍTICO - REGRA ANTI-ALUCINAÇÃO:
+- Se o contexto NÃO contém a resposta, você DEVE dizer: "Não tenho esta informação específica nos documentos legais disponíveis."
+- NUNCA invente, assuma ou infira informações que não estejam explicitamente no contexto
+- Se encontrar informação parcial, indique o que encontrou e o que está faltando
+- NÃO use conhecimento jurídico geral - use APENAS o contexto fornecido`
 
 				const response = await chatModel.invoke([
 					[
@@ -71,6 +91,8 @@ export async function chatWithAI(app: FastifyInstance) {
 						`You are a legal assistant specialized in Mozambican Law (Lei 13/2023 and related legislation).
 
 ${languageInstruction}
+
+${noHallucinationInstruction}
 
 CRITICAL INSTRUCTIONS:
 1. **LANGUAGE**: Respond in the SAME language as the user's question (English or Portuguese)
