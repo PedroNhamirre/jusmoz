@@ -56,9 +56,14 @@ export async function chatWithAI(app: FastifyInstance) {
 					[
 						'system',
 						`Você é um assistente jurídico especializado no Direito de Moçambique.
-                        Use estritamente o contexto abaixo para responder às perguntas.
-                        Se a informação não estiver no contexto, explique que não possui dados sobre isso no momento.
-                        Responda sempre em Português de Moçambique de forma clara e profissional.
+
+                        INSTRUÇÕES IMPORTANTES:
+                        - Use estritamente o contexto abaixo para responder às perguntas
+                        - Se a informação não estiver no contexto, explique que não possui dados sobre isso no momento
+                        - Responda no MESMO IDIOMA da pergunta do usuário (Português ou Inglês)
+                        - Seja claro, preciso e profissional
+                        - SEMPRE verifique e cite os artigos corretos das leis mencionadas no contexto
+                        - Se houver referência a artigos, confirme que está usando o artigo correto baseado no contexto fornecido
 
                         CONTEXTO LEGAL:
                         ${contextText}`,

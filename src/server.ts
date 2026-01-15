@@ -21,13 +21,9 @@ app.setValidatorCompiler(validatorCompiler)
 app.setSerializerCompiler(serializerCompiler)
 
 app.register(fastifyCors, {
-	origin: [
-		'http://localhost:3000',
-		'http://localhost:5173',
-		'http://127.0.0.1:3000',
-	],
-	methods: ['POST', 'GET', 'OPTIONS'],
-	allowedHeaders: ['Content-Type', 'x-api-key'],
+	origin: env.CORS_ORIGIN,
+	methods: env.CORS_METHODS,
+	allowedHeaders: env.CORS_ALLOWED_HEADERS,
 })
 
 app.register(rateLimit, {

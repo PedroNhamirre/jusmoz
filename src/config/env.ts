@@ -5,6 +5,21 @@ const envSchema = z.object({
 	GROQ_API_KEY: z.string().min(1, 'Groq API Key is required'),
 	ADMIN_API_KEY: z.string().min(1, 'security key is required'),
 
+	CORS_ORIGIN: z
+		.string()
+		.default(
+			'http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000',
+		)
+		.transform((val) => val.split(',')),
+	CORS_METHODS: z
+		.string()
+		.default('POST,GET,OPTIONS')
+		.transform((val) => val.split(',')),
+	CORS_ALLOWED_HEADERS: z
+		.string()
+		.default('Content-Type,x-api-key')
+		.transform((val) => val.split(',')),
+
 	PINECONE_API_KEY: z.string().min(1, 'Pinecone API Key is required'),
 	PINECONE_INDEX_NAME: z.string().min(1, 'Pinecone Index Name is required'),
 	PINECONE_INDEX_HOST: z
