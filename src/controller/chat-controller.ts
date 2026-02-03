@@ -10,6 +10,63 @@ import { cacheManager } from '@/lib/cache.js'
 import { chatModel } from '@/lib/langchain.js'
 import { PineconeService } from '@/services/pinecone-service.js'
 
+const LEGAL_KEYWORDS = [
+	'lei',
+	'trabalho',
+	'artigo',
+	'contrato',
+	'férias',
+	'salário',
+	'moçambique',
+	'direito',
+	'dever',
+	'multa',
+	'cláusula',
+	'aviso',
+	'indenização',
+	'jurídico',
+	'law',
+	'labor',
+	'article',
+	'contract',
+	'vacation',
+	'salary',
+	'mozambique',
+	'right',
+	'employment',
+	'legal',
+	'termination',
+	'dismissal',
+	'wage',
+]
+
+function isLikelyLegal(question: string): boolean {
+	const normalized = question.toLowerCase()
+	return (
+		LEGAL_KEYWORDS.some((key) => normalized.includes(key)) ||
+		question.length > 25
+	)
+}
+
+
+function isEnglishQuestion(question: string): boolean {
+	const englishIndicators = [
+		'what',
+		'how',
+		'why',
+		'who',
+		'where',
+		'law',
+		'mozambique',
+		'work',
+		'is',
+		'the',
+	]
+	const normalized = question.toLowerCase()
+	const words = normalized.split(/\s+/)
+	return englishIndicators.some((word) => words.includes(word))
+}
+
 export async function chatWithAI(app: FastifyInstance) {
 	app.withTypeProvider<ZodTypeProvider>().post(
 		'/chat',
@@ -31,28 +88,45 @@ export async function chatWithAI(app: FastifyInstance) {
 			},
 		},
 		async (request, reply) => {
-			const { question } = request.body
+			const { question, limit } = request.body
 
-			const cacheKey = `chat:${question}`
+			const sanitizedQuestion = question.trim().toLowerCase()
+			const cacheKey = `chat:${sanitizedQuestion}:${limit ?? 5}`
+
 			const cachedResponse = cacheManager.get<{
 				answer: string
 				sources: string[]
 			}>(cacheKey)
+
 			if (cachedResponse) {
 				reply.header('X-Cache', 'HIT')
 				return reply.status(200).send(cachedResponse)
 			}
+
 			reply.header('X-Cache', 'MISS')
+
+			if (!isLikelyLegal(question)) {
+				const isEN = isEnglishQuestion(question)
+				return reply.status(200).send({
+					answer: isEN
+						? 'Sorry, I can only help with questions regarding Mozambican legislation and Labor Law. How can I help you legally?'
+						: 'Desculpe, só posso ajudar com questões sobre a legislação moçambicana e Direito do Trabalho. Como posso ajudar juridicamente?',
+					sources: [],
+				})
+			}
+
 			try {
 				const contextDocs = await PineconeService.retrieveRelevantDocs(
 					question,
-					8,
+					limit ?? 8,
 				)
 
 				if (!contextDocs || contextDocs.length === 0) {
+					const isEN = isEnglishQuestion(question)
 					return reply.status(200).send({
-						answer:
-							'Desculpe, não encontrei informação sobre este tópico específico na base de dados legal. A minha especialidade é a legislação moçambicana, principalmente a Lei 13/2023 (Lei do Trabalho) e diplomas relacionados. Pode fazer perguntas sobre direito do trabalho, contratos, despedimentos, direitos e deveres laborais, entre outros temas da legislação moçambicana.',
+						answer: isEN
+							? "I couldn't find specific information about this in the Mozambican legal database. My specialty is Law 13/2023 (Labor Law)."
+							: 'Não encontrei informações específicas sobre este tópico na base de dados legal moçambicana. A minha especialidade é a Lei 13/2023 (Lei do Trabalho).',
 						sources: [],
 					})
 				}
@@ -67,29 +141,23 @@ export async function chatWithAI(app: FastifyInstance) {
 				const response = await chatModel.invoke([
 					[
 						'system',
-						`Você é um assistente jurídico especializado em Direito Moçambicano, com foco na Lei 13/2023 (Lei do Trabalho) e legislação relacionada.
+						`Você é um assistente jurídico especializado na Lei 13/2023 de Moçambique.
 
-Responda SEMPRE em português de forma clara e acessível. Seja profissional mas humano, explique os conceitos de forma que qualquer pessoa entenda. Use exemplos práticos quando relevante para ilustrar a aplicação da lei. Estruture as respostas de forma lógica: resposta direta, fundamentação legal, explicação adicional.
+                        REGRAS DE IDIOMA E ESCOPO:
+                        1. Responda SEMPRE no mesmo idioma da pergunta do usuário (Português ou Inglês).
+                        2. Se a pergunta NÃO for sobre legislação moçambicana ou temas jurídicos, responda apenas:
+                           - PT: "Desculpe, só posso ajudar com questões sobre a legislação moçambicana."
+                           - EN: "Sorry, I can only help with questions regarding Mozambican legislation."
+                        3. Se a informação não estiver no contexto abaixo, admita honestamente no idioma do usuário.
 
-REGRAS FUNDAMENTAIS:
+                        REGRAS DE RESPOSTA JURÍDICA:
+                        - Seja direto e profissional.
+                        - Cite obrigatoriamente: Artigo, Número e Alínea.
+                        - Traduza termos técnicos se responder em Inglês (ex: "Artigo" vira "Article", "Número" vira "Number"), mas mantenha o nome da lei: "Lei 13/2023".
+                        - Estrutura: Resposta direta -> Fundamentação -> Explicação prática.
 
-FIDELIDADE AO CONTEXTO:
-Use EXCLUSIVAMENTE as informações dos documentos legais fornecidos abaixo. Se não encontrar a informação no contexto, seja honesto: "Não tenho esta informação específica nos documentos disponíveis." NUNCA invente, assuma ou use conhecimento geral - apenas o que está no contexto.
-
-PRECISÃO LEGAL:
-Cite SEMPRE os artigos, números e parágrafos específicos. Exemplos: "Artigo 88, número 3, da Lei 13/2023" ou "alínea a) do número 2 do Artigo 140". Mencione valores EXATOS: "25%", "30 dias", "60 dias", etc. Se houver vários artigos aplicáveis, mencione todos.
-
-ESTRUTURA DA RESPOSTA:
-a) Responda a pergunta diretamente no início
-b) Cite o fundamento legal específico (artigo, número, alínea)
-c) Explique de forma clara e acessível o que a lei significa na prática
-d) Se relevante, adicione contexto ou esclarecimentos que ajudem a compreensão
-
-TOM E CLAREZA:
-Evite ser excessivamente formal ou robótico. Use frases como: "De acordo com...", "A lei estabelece que...", "Isto significa que...", "Na prática...". Explique termos jurídicos complexos quando necessário. Seja direto mas cordial.
-
-CONTEXTO LEGAL:
-${contextText}`,
+                        CONTEXTO LEGAL:
+                        ${contextText}`,
 					],
 					['human', question],
 				])
@@ -101,6 +169,7 @@ ${contextText}`,
 					),
 				}
 
+				// Salva no cache por 5 minutos (300.000ms)
 				cacheManager.set(cacheKey, result, 300000)
 
 				return reply.status(200).send(result)
