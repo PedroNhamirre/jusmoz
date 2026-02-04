@@ -39,11 +39,27 @@ export const RetrieveResponseSchema = z.object({
 	),
 })
 
+// Structured citation schema for validation
+export const CitationSchema = z.object({
+	law: z.string().describe('Law reference (e.g., "13/2023")'),
+	article: z.number().describe('Article number'),
+	paragraph: z.number().optional().describe('Paragraph number if specified'),
+	isValid: z.boolean().describe('Whether the citation is valid'),
+})
+
 export const ChatResponseSchema = z.object({
 	answer: z.string().describe('The AI generated response based on the law'),
 	sources: z
 		.array(z.string())
 		.describe('List of document sources used for this answer'),
+	citations: z
+		.array(CitationSchema)
+		.optional()
+		.describe('Structured citations extracted from the response'),
+	confidence: z
+		.enum(['high', 'medium', 'low', 'none'])
+		.optional()
+		.describe('Confidence level based on citation quality'),
 })
 
 export const ErrorResponseSchema = z.object({
@@ -54,3 +70,4 @@ export const ErrorResponseSchema = z.object({
 export type UpsertResponse = z.infer<typeof UpsertResponseSchema>
 export type RetrieveResponse = z.infer<typeof RetrieveResponseSchema>
 export type ChatResponse = z.infer<typeof ChatResponseSchema>
+export type Citation = z.infer<typeof CitationSchema>
