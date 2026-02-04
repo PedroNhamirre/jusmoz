@@ -7,10 +7,8 @@ const envSchema = z.object({
 
 	CORS_ORIGIN: z
 		.string()
-		.default(
-			'http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000',
-		)
-		.transform((val) => val.split(',')),
+		.default('http://localhost:3000')
+		.transform((val) => val.split(',').map((origin) => origin.trim())),
 	CORS_METHODS: z
 		.string()
 		.default('POST,GET,OPTIONS')

@@ -37,6 +37,15 @@ export async function upsertDocument(app: FastifyInstance) {
 		async (request, reply) => {
 			const { url } = request.body
 
+			// Security: Validate URL is HTTPS and not localhost/private IP
+			const urlObj = new URL(url)
+			if (urlObj.protocol !== 'https:' && !url.startsWith('http://localhost')) {
+				return reply.status(400).send({
+					error: 'Bad Request',
+					message: 'Only HTTPS URLs are allowed for security',
+				})
+			}
+
 			try {
 				const documents = await ProcessDocument(url)
 				await PineconeService.upsertLawChunks(documents)
