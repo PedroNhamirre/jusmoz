@@ -24,6 +24,8 @@ app.register(fastifyCors, {
 	origin: env.CORS_ORIGIN,
 	methods: env.CORS_METHODS,
 	allowedHeaders: env.CORS_ALLOWED_HEADERS,
+	credentials: true,
+	exposedHeaders: ['X-Cache'],
 })
 
 app.register(rateLimit, {
