@@ -1,17 +1,8 @@
 import { z } from 'zod'
 
-export const UpsertDocumentSchema = z
-	.object({
-		url: z
-			.url()
-			.or(z.literal(''))
-			.transform((v) => (v === '' ? undefined : v))
-			.optional(),
-		filePath: z.string().optional(),
-	})
-	.refine((data) => data.url || data.filePath, {
-		message: "Either 'url' or 'filePath' must be provided",
-	})
+export const UpsertDocumentSchema = z.object({
+	url: z.string().url({ message: 'Invalid URL format' }),
+})
 
 export type UpsertDocumentInput = z.infer<typeof UpsertDocumentSchema>
 

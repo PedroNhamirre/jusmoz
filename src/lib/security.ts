@@ -284,9 +284,18 @@ export function isLegalQuery(text: string): boolean {
 		return true
 	}
 
-	// Single keyword + reasonable length (more specific than 40 chars)
-	if (keywordCount >= 1 && words.length >= 5 && words.length <= 100) {
-		return true
+	// Single keyword in a reasonable question (more lenient)
+	// If it has at least 1 legal keyword and looks like a question, allow it
+	if (keywordCount >= 1) {
+		// Check if it's a question (ends with ?, has question words, or is 3+ words)
+		const isQuestion =
+			/\?$/.test(text) ||
+			/^(quanto|quais?|como|quando|onde|por\s*que|o\s*que|qual|what|how|when|where|why|which)/i.test(
+				normalized,
+			) ||
+			words.length >= 3
+
+		if (isQuestion) return true
 	}
 
 	return false

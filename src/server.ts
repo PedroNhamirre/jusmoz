@@ -1,4 +1,5 @@
 import { fastifyCors } from '@fastify/cors'
+import multipart from '@fastify/multipart'
 import rateLimit from '@fastify/rate-limit'
 import { fastifySwagger } from '@fastify/swagger'
 import ScalarApiReference from '@scalar/fastify-api-reference'
@@ -26,6 +27,17 @@ app.register(fastifyCors, {
 	allowedHeaders: env.CORS_ALLOWED_HEADERS,
 	credentials: true,
 	exposedHeaders: ['X-Cache'],
+})
+
+app.register(multipart, {
+	limits: {
+		fieldNameSize: 100,
+		fieldSize: 100,
+		fields: 10,
+		fileSize: 10 * 1024 * 1024, // 10MB
+		files: 1,
+		headerPairs: 2000,
+	},
 })
 
 app.register(rateLimit, {

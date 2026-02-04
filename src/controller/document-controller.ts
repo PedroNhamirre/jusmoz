@@ -1,3 +1,4 @@
+import type { MultipartFile } from '@fastify/multipart'
 import type { FastifyInstance } from 'fastify'
 import type { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { documentRateLimitConfig } from '@/config/rate-limit.js'
@@ -34,19 +35,76 @@ export async function upsertDocument(app: FastifyInstance) {
 			},
 		},
 		async (request, reply) => {
-			const { url, filePath } = request.body
-			const source = url ?? filePath
-
-			if (!source) {
-				return reply.status(400).send({ error: 'Source is missing' })
-			}
+			const { url } = request.body
 
 			try {
-				const documents = await ProcessDocument(source)
+				const documents = await ProcessDocument(url)
 				await PineconeService.upsertLawChunks(documents)
 
 				return reply.status(201).send({
-					message: 'Document synchronized successfully',
+					message: 'Document uploaded and processed successfully',
+					chunks: documents.length,
+				})
+			} catch (error) {
+				app.log.error(error)
+				return reply.status(500).send({
+					error: 'Processing failed',
+					message: error instanceof Error ? error.message : 'Unknown error',
+				})
+			}
+		},
+	)
+}
+
+export async function uploadDocumentFile(app: FastifyInstance) {
+	app.post(
+		'/documents/upload',
+		{
+			config: {
+				rateLimit: {
+					max: documentRateLimitConfig.max,
+					timeWindow: documentRateLimitConfig.timeWindow,
+				},
+			},
+			schema: {
+				summary: 'Upload and process a law document from file',
+				tags: ['Documents'],
+				security: [{ apiKey: [] }],
+				response: {
+					201: UpsertResponseSchema,
+					400: ErrorResponseSchema,
+					500: ErrorResponseSchema,
+				},
+			},
+		},
+		async (request, reply) => {
+			try {
+				const data = await request.file()
+
+				if (!data) {
+					return reply.status(400).send({
+						error: 'Bad Request',
+						message: 'No file uploaded',
+					})
+				}
+
+				// Check if it's a PDF
+				if (data.mimetype !== 'application/pdf') {
+					return reply.status(400).send({
+						error: 'Bad Request',
+						message: 'Only PDF files are allowed',
+					})
+				}
+
+				// Read file buffer
+				const buffer = await data.toBuffer()
+
+				// Process the document
+				const documents = await ProcessDocument(buffer)
+				await PineconeService.upsertLawChunks(documents)
+
+				return reply.status(201).send({
+					message: 'Document uploaded and processed successfully',
 					chunks: documents.length,
 				})
 			} catch (error) {
