@@ -8,6 +8,15 @@ export type UpsertDocumentInput = z.infer<typeof UpsertDocumentSchema>
 
 export const SearchQuerySchema = z.object({
 	question: z.string().min(3, 'Question must be at least 3 characters long'),
+	conversationHistory: z
+		.array(
+			z.object({
+				role: z.enum(['user', 'assistant']),
+				content: z.string(),
+			}),
+		)
+		.optional()
+		.default([]),
 	limit: z.number().int().min(1).max(20).default(5),
 })
 
