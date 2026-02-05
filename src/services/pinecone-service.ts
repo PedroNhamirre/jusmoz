@@ -122,48 +122,36 @@ export const PineconeService = {
 
 		const docs = await vectorStore.similaritySearch(query, initialLimit)
 
-		// Extrair termos-chave da query para reranking
-		const queryKeywords = extractQueryKeywords(query)
+		// Extração dinâmica de termos importantes da query (ignora stopwords)
+		const queryTerms = extractSignificantTerms(query)
 
-		// Reranking universal baseado em correspondência de termos
 		const rankedDocs = docs.map((doc) => {
 			let score = 0
-			const contentLower = doc.pageContent.toLowerCase()
+			const text = doc.pageContent.toLowerCase()
+			const queryLower = query.toLowerCase()
 
-			// Correspondência de termos-chave da query no conteúdo
-			for (const keyword of queryKeywords) {
-				const kwLower = keyword.toLowerCase()
-				if (contentLower.includes(kwLower)) {
-					score += 3
-					// Bonus extra se aparece múltiplas vezes
-					const count = (contentLower.match(new RegExp(kwLower, 'g')) || []).length
-					if (count > 1) score += Math.min(count - 1, 2)
+			// 1. DENSIDADE DE TERMOS (TF Local)
+			for (const term of queryTerms) {
+				const regex = new RegExp(`\\b${term}\\b`, 'gi')
+				const occurrences = (text.match(regex) || []).length
+				score += occurrences * 5
+			}
+
+			// 2. CORRESPONDÊNCIA DE ARTIGOS DINÂMICA
+			const queryArticles = Array.from(
+				queryLower.matchAll(/artigo\s+(\d+)/g),
+			).map((m) => m[1])
+			if (queryArticles.length > 0) {
+				for (const artNum of queryArticles) {
+					if (text.includes(`artigo ${artNum}`)) score += 100
+					if (String(doc.metadata?.article || '') === artNum) score += 50
 				}
 			}
 
-			// Bonus para documentos com citações legais
-			if (/artigo\s+\d+|article\s+\d+/i.test(doc.pageContent)) {
-				score += 2
-			}
-
-			// Bonus para documentos com valores específicos
-			if (/\d+\s*dias|\d+%|\d+\s*(por\s*cento|percent)/i.test(doc.pageContent)) {
-				score += 1.5
-			}
-
-			// Bonus para documentos com parágrafos/alíneas numerados
-			if (/n[º°]\s*\d+|alínea\s+[a-z]/i.test(doc.pageContent)) {
-				score += 1
-			}
-
-			// Bonus se keywords dos metadados correspondem à query
-			const docKeywords = (doc.metadata.keywords as string) || ''
-			if (docKeywords) {
-				const matchingKeywords = queryKeywords.filter((qk) =>
-					docKeywords.toLowerCase().includes(qk.toLowerCase()),
-				)
-				score += matchingKeywords.length * 2
-			}
+			// 3. ESTRUTURA DE LEI MOÇAMBICANA (Nº, Alíneas, Parágrafos)
+			if (/^\s*artigo\s+\d+/i.test(text)) score += 15
+			if (/\bn[º°].\s*\d+/i.test(text)) score += 5
+			if (/\balínea\s+[a-z]\)/i.test(text)) score += 5
 
 			return { doc, score }
 		})
@@ -174,6 +162,31 @@ export const PineconeService = {
 			.slice(0, limit)
 			.map((item) => item.doc)
 	},
+}
+
+/**
+ * Extrai termos significativos ignorando conectores comuns.
+ */
+function extractSignificantTerms(query: string): string[] {
+	const stopwords = new Set([
+		'como', 'qual', 'quais', 'quem', 'onde', 'quando', 'porque', 'para',
+		'pelo', 'pela', 'está', 'fazer', 'sobre', 'este', 'esta', 'tudo',
+		'a', 'o', 'e', 'de', 'da', 'do', 'que', 'um', 'uma', 'com', 'não',
+		'em', 'por', 'se', 'na', 'no', 'ao', 'os', 'as', 'é', 'foi', 'ser',
+		'seu', 'sua', 'ou', 'quando', 'muito', 'nos', 'já', 'eu', 'também',
+		'só', 'até', 'isso', 'ela', 'entre', 'era', 'depois', 'sem', 'mesmo',
+		'aos', 'ter', 'seus', 'quem', 'nas', 'me', 'esse', 'eles', 'está',
+		'essa', 'num', 'nem', 'suas', 'meu', 'às', 'minha', 'têm', 'numa',
+		'pelos', 'qual', 'quanto', 'acordo', 'deve', 'receber', 'valor', 'total',
+	])
+
+	return query
+		.toLowerCase()
+		.normalize('NFD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.replace(/[^\w\s]/g, ' ')
+		.split(/\s+/)
+		.filter((word) => word.length > 3 && !stopwords.has(word))
 }
 
 /**
