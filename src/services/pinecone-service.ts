@@ -4,11 +4,33 @@ import { pineconeIndex, pineconeNamespace } from '@/lib/pinecone.js'
 import type { UpsertOptions } from '@/services/types.js'
 
 export const PineconeService = {
+	async deleteAllChunks(): Promise<number> {
+		let deleted = 0
+		let paginationToken: string | undefined
+
+		do {
+			const listResult = await pineconeNamespace.listPaginated({
+				limit: 1000,
+				paginationToken,
+			})
+
+			const ids = listResult.vectors?.map((v) => v.id) || []
+			if (ids.length === 0) break
+
+			await pineconeNamespace.deleteMany(ids)
+			deleted += ids.length
+
+			paginationToken = listResult.pagination?.next
+		} while (paginationToken)
+
+		console.info(`Deleted ${deleted} vectors in Pinecone namespace.`)
+		return deleted
+	},
 	/**
 	 * Deleta todos os chunks de um documento específico antes de re-inserir
 	 */
 	async deleteDocumentChunks(source: string): Promise<number> {
-		const sanitizedSource = source.replace(/[\s/]/g, '_')
+		const sanitizedSource = sanitizeVectorId(source)
 		const prefix = `${sanitizedSource}#chunk`
 
 		try {
@@ -52,9 +74,8 @@ export const PineconeService = {
 
 			const records = currentBatch.map((doc, index) => {
 				const globalIndex = i + index
-				const sanitizedSource = String(doc.metadata.source).replace(
-					/[\s/]/g,
-					'_',
+				const sanitizedSource = sanitizeVectorId(
+					String(doc.metadata.source),
 				)
 
 				return {
@@ -174,4 +195,12 @@ function extractQueryKeywords(query: string): string[] {
 		.replace(/[^\w\sáàâãéèêíìîóòôõúùûç]/g, ' ')
 		.split(/\s+/)
 		.filter((word) => word.length > 3 && !stopwords.has(word))
+}
+
+function sanitizeVectorId(value: string): string {
+	return value
+		.normalize('NFD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.replace(/[^\x00-\x7F]/g, '')
+		.replace(/[\s/]+/g, '_')
 }

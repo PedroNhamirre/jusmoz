@@ -1,7 +1,22 @@
 import fs from 'node:fs/promises'
 import type { Document } from '@langchain/core/documents'
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters'
-import { PDFParse } from 'pdf-parse'
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+
+// Configurar o worker do pdfjs para Node.js (sem node:module)
+const workerUrl = new URL(
+	'../../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',
+	import.meta.url,
+)
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl.toString()
+
+interface TextItem {
+	str: string
+	x: number
+	y: number
+	width: number
+	height: number
+}
 
 interface ChunkMetadata {
 	source: string
@@ -14,228 +29,170 @@ interface ChunkMetadata {
 	keywords?: string
 }
 
-function getMetadata(text: string): ChunkMetadata {
-	const lawMatch = text.match(/Lei\s+n\.?[\sº""]+(\d+\/\d{4})/i)
-	const titleMatch = text.match(
-		/Lei\s+n\.?[\sº""]+\d+\/\d{4}[:\s\n]+([^.\n;]+)/i,
-	)
+/**
+ * Extrai itens de texto com coordenadas precisas.
+ * Crucial para identificar a posição X e separar as colunas do Boletim da República.
+ */
+async function extractTextWithCoordinates(page: any): Promise<TextItem[]> {
+	const textContent = await page.getTextContent()
+	const viewport = page.getViewport({ scale: 1.0 })
 
-	let type = titleMatch ? titleMatch[1].trim() : 'Documento Geral'
-	type = type.split(/\s+e\s+revoga/i)[0].trim()
+	const items: TextItem[] = []
 
-	return {
-		source: lawMatch ? `Lei ${lawMatch[1]}` : 'Legislação',
-		type: type,
-		jurisdiction: 'Moçambique',
-		processedAt: new Date().toISOString(),
-	}
-}
-
-// Extrai capítulo e seção do texto
-function extractChapterSection(text: string): { chapter?: string; section?: string } {
-	const chapterPatterns = [
-		/CAPÍ?TULO\s+([IVXLC]+)\s*[-–—]?\s*([^\n]+)/i,
-		/CAPÍ?TULO\s+(\d+)\s*[-–—]?\s*([^\n]+)/i,
-	]
-
-	const sectionPatterns = [
-		/SECÇ?ÃO\s+([IVXLC]+)\s*[-–—]?\s*([^\n]+)/i,
-		/SECÇ?ÃO\s+(\d+)\s*[-–—]?\s*([^\n]+)/i,
-		/SUBSECÇ?ÃO\s+([IVXLC]+)\s*[-–—]?\s*([^\n]+)/i,
-	]
-
-	let chapter: string | undefined
-	let section: string | undefined
-
-	for (const pattern of chapterPatterns) {
-		const match = text.match(pattern)
-		if (match) {
-			chapter = `Capítulo ${match[1]}${match[2] ? ` - ${match[2].trim()}` : ''}`
-			break
+	for (const item of textContent.items) {
+		if ('str' in item && item.str.trim()) {
+			// Transformar coordenadas para o sistema da página
+			const tx = pdfjsLib.Util.transform(viewport.transform, item.transform)
+			items.push({
+				str: item.str,
+				x: tx[4],
+				y: viewport.height - tx[5], // Inverter Y para leitura de cima para baixo
+				width: item.width || 0,
+				height: item.height || 0,
+			})
 		}
 	}
 
-	for (const pattern of sectionPatterns) {
-		const match = text.match(pattern)
-		if (match) {
-			section = `Secção ${match[1]}${match[2] ? ` - ${match[2].trim()}` : ''}`
-			break
+	return items
+}
+
+/**
+ * Ordena os itens respeitando o layout de colunas.
+ * Primeiro lê toda a coluna da esquerda (de cima a baixo) e depois a da direita.
+ */
+function sortTextItems(items: TextItem[], pageWidth: number): TextItem[] {
+	const midPoint = pageWidth / 2
+
+	// Filtro para separar colunas
+	const leftColumn = items.filter(item => item.x < midPoint - 10)
+	const rightColumn = items.filter(item => item.x >= midPoint - 10)
+
+	// Função de ordenação: prioritariamente por Y (altura) e secundariamente por X (largura)
+	const sortByY = (a: TextItem, b: TextItem) => {
+		const yDiff = a.y - b.y
+		if (Math.abs(yDiff) > 4) return yDiff // Tolerância de 4px para considerar a mesma linha
+		return a.x - b.x
+	}
+
+	leftColumn.sort(sortByY)
+	rightColumn.sort(sortByY)
+
+	return [...leftColumn, ...rightColumn]
+}
+
+/**
+ * Reconstrói o texto garantindo espaços e quebras de linha lógicas.
+ */
+function reconstructText(items: TextItem[]): string {
+	if (items.length === 0) return ''
+
+	const lines: string[] = []
+	let currentLine = ''
+	let lastY = items[0].y
+
+	for (const item of items) {
+		// Se a diferença de Y for significativa, é uma nova linha
+		if (Math.abs(item.y - lastY) > 8) {
+			if (currentLine.trim()) lines.push(currentLine.trim())
+			currentLine = item.str
+		} else {
+			// Adicionar espaço se necessário
+			if (currentLine && !currentLine.endsWith(' ') && !item.str.startsWith(' ')) {
+				currentLine += ' '
+			}
+			currentLine += item.str
 		}
+		lastY = item.y
 	}
 
-	return { chapter, section }
+	if (currentLine.trim()) lines.push(currentLine.trim())
+
+	// Normalização específica para Artigos: garantir que "Artigo X" esteja numa nova linha
+	return lines.join('\n').replace(/(\bARTIGO\s+\d+\b)/gi, '\n\n$1\n')
 }
 
-// Extrai range de artigos no chunk
-function extractArticleRange(text: string): string | undefined {
-	const articleMatches = text.match(/artigos?\s+(\d+)/gi)
-	if (!articleMatches || articleMatches.length === 0) return undefined
-
-	const numbers = articleMatches
-		.map((m) => {
-			const num = m.match(/\d+/)
-			return num ? parseInt(num[0], 10) : 0
-		})
-		.filter((n) => n > 0)
-
-	if (numbers.length === 0) return undefined
-	if (numbers.length === 1) return `Artigo ${numbers[0]}`
-
-	const min = Math.min(...numbers)
-	const max = Math.max(...numbers)
-	return min === max ? `Artigo ${min}` : `Artigos ${min}-${max}`
-}
-
-// Extrai palavras-chave significativas do texto (universal, sem hardcode)
-function extractKeywords(text: string): string | undefined {
-	// Palavras comuns a ignorar (stopwords em PT)
-	const stopwords = new Set([
-		'a', 'à', 'ao', 'aos', 'as', 'até', 'com', 'como', 'da', 'das', 'de', 'dela',
-		'delas', 'dele', 'deles', 'depois', 'do', 'dos', 'e', 'ela', 'elas', 'ele',
-		'eles', 'em', 'entre', 'era', 'eram', 'essa', 'essas', 'esse', 'esses', 'esta',
-		'estas', 'este', 'estes', 'eu', 'foi', 'foram', 'há', 'isso', 'isto', 'já',
-		'lhe', 'lhes', 'lo', 'mais', 'mas', 'me', 'mesmo', 'meu', 'meus', 'minha',
-		'minhas', 'muito', 'na', 'nas', 'não', 'nem', 'no', 'nos', 'nós', 'nossa',
-		'nossas', 'nosso', 'nossos', 'num', 'numa', 'o', 'os', 'ou', 'para', 'pela',
-		'pelas', 'pelo', 'pelos', 'por', 'qual', 'quando', 'que', 'quem', 'se', 'sem',
-		'ser', 'será', 'seu', 'seus', 'só', 'sua', 'suas', 'também', 'te', 'tem',
-		'têm', 'tendo', 'ter', 'teu', 'teus', 'tu', 'tua', 'tuas', 'um', 'uma', 'você',
-		'vocês', 'vos', 'artigo', 'lei', 'número', 'nº', 'alínea', 'parágrafo',
-		'presente', 'seguinte', 'anterior', 'deve', 'podem', 'pode', 'deve', 'devem',
-		'caso', 'casos', 'forma', 'termos', 'acordo', 'mediante', 'sobre', 'sob',
-		'previsto', 'prevista', 'disposto', 'disposta', 'estabelecido', 'aplicável',
-	])
-
-	// Normalizar e extrair palavras
-	const words = text
-		.toLowerCase()
-		.normalize('NFD')
-		.replace(/[\u0300-\u036f]/g, '') // Remove acentos para comparação
-		.replace(/[^\w\s]/g, ' ')
-		.split(/\s+/)
-		.filter((w) => w.length > 3 && !stopwords.has(w))
-
-	// Contar frequência
-	const freq: Record<string, number> = {}
-	for (const word of words) {
-		freq[word] = (freq[word] || 0) + 1
-	}
-
-	// Pegar as 5 palavras mais frequentes (que aparecem mais de 1 vez)
-	const keywords = Object.entries(freq)
-		.filter(([_, count]) => count > 1)
-		.sort((a, b) => b[1] - a[1])
-		.slice(0, 5)
-		.map(([word]) => word)
-
-	return keywords.length > 0 ? keywords.join(', ') : undefined
-}
-
+/**
+ * Limpeza de ruído comum em Boletins da República (cabeçalhos e rodapés).
+ */
 function cleanText(text: string): string {
 	return text
-		.replace(/--- PAGE \d+ ---/g, '')
-		.replace(/BOLETIM DA REPÚBLICA/g, '')
-		.replace(/I SÉRIE\s+—\s+NÚMERO\s+\d+/g, '')
-		.replace(/\d+\s+—\s+\(\d+\)/g, '')
-		.replace(/A\s+rtigo/g, 'Artigo')
-		.replace(/A\s+RTIGO/g, 'ARTIGO')
+		.replace(/BOLETIM DA REPÚBLICA/gi, '')
+		.replace(/I SÉRIE\s*[—–-]\s*NÚMERO\s+\d+/gi, '')
+		.replace(/\d+\s*[—–-]\s*\(\d+\)/g, '') // Remove números de página isolados
 		.replace(/\n{3,}/g, '\n\n')
 		.trim()
 }
 
-// Mantém contexto do capítulo/seção ao longo do documento
-let currentChapter = ''
-let currentSection = ''
+/**
+ * Extrai metadados contextuais (Capítulo, Secção) para enriquecer o chunk.
+ */
+function extractContext(text: string): { chapter?: string; section?: string } {
+	const capMatch = text.match(/CAPÍ?TULO\s+([IVXLC\d]+)(?:\s*[-–—]?\s*([^\n]+))?/i)
+	const secMatch = text.match(/SECÇ?ÃO\s+([IVXLC\d]+)(?:\s*[-–—]?\s*([^\n]+))?/i)
 
-function updateContextFromText(text: string): void {
-	const { chapter, section } = extractChapterSection(text)
-	if (chapter) currentChapter = chapter
-	if (section) currentSection = section
+	return {
+		chapter: capMatch ? `Capítulo ${capMatch[1]}${capMatch[2] ? ' - ' + capMatch[2].trim() : ''}` : undefined,
+		section: secMatch ? `Secção ${secMatch[1]}${secMatch[2] ? ' - ' + secMatch[2].trim() : ''}` : undefined
+	}
 }
 
-export async function ProcessDocument(
-	input: string | Buffer,
-): Promise<Document[]> {
+/**
+ * Extrai o número do artigo principal contido no texto para metadados.
+ */
+function extractArticle(text: string): string | undefined {
+	const match = text.match(/ARTIGO\s+(\d+)/i)
+	return match ? `Artigo ${match[1]}` : undefined
+}
+
+export async function ProcessDocument(input: string | Buffer): Promise<Document[]> {
 	let dataBuffer: Buffer
+	let currentChapter = ''
+	let currentSection = ''
 
-	// Reset context for new document
-	currentChapter = ''
-	currentSection = ''
-
-	try {
-		if (typeof input === 'string') {
-			if (input.startsWith('http')) {
-				const response = await fetch(input)
-				if (!response.ok)
-					throw new Error(`Erro ao baixar PDF: ${response.statusText}`)
-				dataBuffer = Buffer.from(await response.arrayBuffer())
-			} else {
-				dataBuffer = await fs.readFile(input)
-			}
-		} else {
-			dataBuffer = input
-		}
-
-		const parser = new PDFParse(new Uint8Array(dataBuffer))
-		const pdfData = await parser.getText()
-		let rawText = pdfData.text
-
-		if (!rawText || rawText.length < 10) {
-			throw new Error('O PDF parece estar vazio ou requer OCR (imagem).')
-		}
-
-		rawText = cleanText(rawText)
-		const baseMetadata = getMetadata(rawText)
-
-		const separators = [
-			'\n\nCAPÍTULO ',
-			'\nCAPÍTULO ',
-			'\n\nSECÇÃO ',
-			'\nSECÇÃO ',
-			'\n\nSubsecção ',
-			'\n\nARTIGO ',
-			'\n\nArtigo ',
-			'\nARTIGO ',
-			'\nArtigo ',
-			'\n\n1. ',
-			'\n\na) ',
-			'\n\n',
-			'. ',
-			' ',
-			'',
-		]
-
-		const splitter = new RecursiveCharacterTextSplitter({
-			chunkSize: 1200,
-			chunkOverlap: 200,
-			separators: separators,
-			keepSeparator: true,
-		})
-
-		const rawDocs = await splitter.createDocuments([rawText], [baseMetadata])
-
-		// Enriquecer cada chunk com metadados
-		const enrichedDocs = rawDocs.map((doc) => {
-			updateContextFromText(doc.pageContent)
-
-			const articleRange = extractArticleRange(doc.pageContent)
-			const keywords = extractKeywords(doc.pageContent)
-
-			return {
-				...doc,
-				metadata: {
-					...doc.metadata,
-					chapter: currentChapter || undefined,
-					section: currentSection || undefined,
-					articleRange,
-					keywords,
-				},
-			}
-		})
-
-		return enrichedDocs
-	} catch (error) {
-		console.error('Erro no processamento:', error)
-		throw error
+	if (typeof input === 'string') {
+		dataBuffer = await fs.readFile(input)
+	} else {
+		dataBuffer = input
 	}
+
+	const data = new Uint8Array(dataBuffer)
+	const pdf = await pdfjsLib.getDocument({ data, useSystemFonts: true }).promise
+
+	const allPagesText: string[] = []
+
+	for (let i = 1; i <= pdf.numPages; i++) {
+		const page = await pdf.getPage(i)
+		const viewport = page.getViewport({ scale: 1.0 })
+		const items = await extractTextWithCoordinates(page)
+		const sortedItems = sortTextItems(items, viewport.width)
+		allPagesText.push(reconstructText(sortedItems))
+	}
+
+	const fullText = cleanText(allPagesText.join('\n\n'))
+
+	const splitter = new RecursiveCharacterTextSplitter({
+		chunkSize: 1000,
+		chunkOverlap: 150,
+		separators: ['\n\nARTIGO ', '\n\nArtigo ', '\nCAPÍTULO ', '\nSECÇÃO ', '\n\n', '\n', '. ', ' '],
+		keepSeparator: true
+	})
+
+	const rawDocs = await splitter.createDocuments([fullText])
+
+	return rawDocs.map(doc => {
+		const { chapter, section } = extractContext(doc.pageContent)
+		if (chapter) currentChapter = chapter
+		if (section) currentSection = section
+
+		return {
+			pageContent: doc.pageContent,
+			metadata: {
+				source: 'Lei 13/2023 - Moçambique',
+				chapter: currentChapter,
+				section: currentSection,
+				article: extractArticle(doc.pageContent),
+				processedAt: new Date().toISOString()
+			}
+		}
+	})
 }
