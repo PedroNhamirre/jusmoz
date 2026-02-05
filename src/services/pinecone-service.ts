@@ -95,41 +95,53 @@ export const PineconeService = {
 	): Promise<Document[]> {
 		const vectorStore = await getVectorStore()
 
-		// Buscar mais documentos inicialmente (oversampling)
-		const oversamplingFactor = 2
+		// Buscar mais documentos inicialmente (oversampling para melhor reranking)
+		const oversamplingFactor = 3
 		const initialLimit = Math.ceil(limit * oversamplingFactor)
 
 		const docs = await vectorStore.similaritySearch(query, initialLimit)
 
-		// Reranking baseado em qualidade do conteúdo
+		// Extrair termos-chave da query para reranking
+		const queryKeywords = extractQueryKeywords(query)
+
+		// Reranking universal baseado em correspondência de termos
 		const rankedDocs = docs.map((doc) => {
 			let score = 0
+			const contentLower = doc.pageContent.toLowerCase()
 
-			// Bonus para documentos que contêm números de artigos
+			// Correspondência de termos-chave da query no conteúdo
+			for (const keyword of queryKeywords) {
+				const kwLower = keyword.toLowerCase()
+				if (contentLower.includes(kwLower)) {
+					score += 3
+					// Bonus extra se aparece múltiplas vezes
+					const count = (contentLower.match(new RegExp(kwLower, 'g')) || []).length
+					if (count > 1) score += Math.min(count - 1, 2)
+				}
+			}
+
+			// Bonus para documentos com citações legais
 			if (/artigo\s+\d+|article\s+\d+/i.test(doc.pageContent)) {
 				score += 2
 			}
 
-			// Bonus para documentos com porcentagens e valores específicos
-			if (/\d+%|\d+\s*(por\s*cento|percent)/i.test(doc.pageContent)) {
+			// Bonus para documentos com valores específicos
+			if (/\d+\s*dias|\d+%|\d+\s*(por\s*cento|percent)/i.test(doc.pageContent)) {
 				score += 1.5
 			}
 
-			// Bonus para documentos com parágrafos numerados
-			if (/par[áa]grafo\s+\d+|paragraph\s+\d+|n[º°]\s*\d+/i.test(doc.pageContent)) {
+			// Bonus para documentos com parágrafos/alíneas numerados
+			if (/n[º°]\s*\d+|alínea\s+[a-z]/i.test(doc.pageContent)) {
 				score += 1
 			}
 
-			// Bonus se o documento tem keywords nos metadados
-			const keywords = (doc.metadata.keywords as string) || ''
-			if (keywords) {
-				score += 0.5
-			}
-
-			// Bonus por capítulo definido
-			const chapter = (doc.metadata.chapter as string) || ''
-			if (chapter) {
-				score += 0.5
+			// Bonus se keywords dos metadados correspondem à query
+			const docKeywords = (doc.metadata.keywords as string) || ''
+			if (docKeywords) {
+				const matchingKeywords = queryKeywords.filter((qk) =>
+					docKeywords.toLowerCase().includes(qk.toLowerCase()),
+				)
+				score += matchingKeywords.length * 2
 			}
 
 			return { doc, score }
@@ -141,4 +153,25 @@ export const PineconeService = {
 			.slice(0, limit)
 			.map((item) => item.doc)
 	},
+}
+
+/**
+ * Extrai termos-chave relevantes da query do usuário
+ */
+function extractQueryKeywords(query: string): string[] {
+	const stopwords = new Set([
+		'a', 'o', 'e', 'de', 'da', 'do', 'que', 'um', 'uma', 'para', 'com', 'não',
+		'em', 'por', 'se', 'na', 'no', 'ao', 'os', 'as', 'é', 'foi', 'ser', 'tem',
+		'seu', 'sua', 'ou', 'quando', 'muito', 'nos', 'já', 'eu', 'também', 'só',
+		'pelo', 'pela', 'até', 'isso', 'ela', 'entre', 'era', 'depois', 'sem',
+		'mesmo', 'aos', 'ter', 'seus', 'quem', 'nas', 'me', 'esse', 'eles', 'está',
+		'essa', 'num', 'nem', 'suas', 'meu', 'às', 'minha', 'têm', 'numa', 'pelos',
+		'qual', 'quanto', 'qual', 'acordo', 'deve', 'receber', 'valor', 'total',
+	])
+
+	return query
+		.toLowerCase()
+		.replace(/[^\w\sáàâãéèêíìîóòôõúùûç]/g, ' ')
+		.split(/\s+/)
+		.filter((word) => word.length > 3 && !stopwords.has(word))
 }
