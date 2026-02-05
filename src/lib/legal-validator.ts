@@ -150,14 +150,6 @@ export function validateLegalResponse(text: string): ResponseValidation {
 		}
 	}
 
-	if (!citationResult.hasValidCitation && text.length > 200) {
-		return {
-			isValid: false,
-			reason: 'Legal response without proper citations',
-			citationResult,
-			shouldBlock: true,
-		}
-	}
 
 	if (citationResult.hasValidCitation) {
 		return {
@@ -170,7 +162,7 @@ export function validateLegalResponse(text: string): ResponseValidation {
 
 	return {
 		isValid: true,
-		reason: 'Short response without citations (may need review)',
+		reason: text.length > 200 ? 'Response without citations (informative)' : 'Short response without citations',
 		citationResult,
 		shouldBlock: false,
 	}

@@ -93,17 +93,20 @@ ${historyContext}
 ## REGRAS DE RESPOSTA
 - ${langInstruction}
 - Responda como um advogado experiente responderia a um cliente.
-- OBRIGATÓRIO: Cite artigos específicos no formato "Artigo X da Lei Y/AAAA" ou "Artigo X, nº Y da Lei Z/AAAA".
+- SEMPRE que possível, cite artigos específicos no formato "Artigo X da Lei Y/AAAA" ou "Artigo X, nº Y da Lei Z/AAAA".
+- Se a base de conhecimento contém informação relevante COM citações de artigos específicos, VOCÊ DEVE incluir essas citações na sua resposta.
+- Se não encontrar citações específicas na base de conhecimento, ainda assim forneça uma resposta útil e informativa baseada no contexto disponível.
 - NUNCA mencione termos técnicos internos como "contexto", "documentos fornecidos", "base de dados", "DOC", etc.
 - Se não tiver informação suficiente, diga naturalmente: "Esta questão específica não está coberta na legislação que tenho disponível" ou similar.
-- Seja direto e profissional.
+- Seja direto, profissional e útil.
 
 ## BASE DE CONHECIMENTO
 ${contextText}
 
 ## FORMATO DA RESPOSTA
 - Responda diretamente à pergunta do utilizador.
-- Cite os artigos relevantes de forma natural no texto.
+- Cite os artigos relevantes de forma natural no texto quando disponíveis.
+- Forneça informação útil mesmo quando citações específicas não estiverem disponíveis.
 - Se não encontrar a informação, seja honesto sem mencionar aspectos técnicos.`
 }
 
@@ -218,14 +221,27 @@ export async function chatWithAI(app: FastifyInstance) {
 						event: 'response_blocked',
 						reason: validation.reason,
 						question: maskPII(sanitizedQuestion.slice(0, 100)),
+						answer: maskPII(answerText.slice(0, 200)),
 						invalidCitations: validation.citationResult.citations
 							.filter((c) => !c.isValid)
 							.map((c) => c.rawText),
+						validCitationCount: validation.citationResult.validCount,
+						hasValidCitation: validation.citationResult.hasValidCitation,
 					})
 
 					return reply.status(200).send({
 						answer: getMessage(lang, 'invalidResponse'),
 						sources: [],
+					})
+				}
+
+				if (!validation.citationResult.hasValidCitation && answerText.length > 100) {
+					app.log.info({
+						event: 'response_no_citations',
+						reason: validation.reason,
+						question: maskPII(sanitizedQuestion.slice(0, 100)),
+						answerLength: answerText.length,
+						confidence: validation.citationResult.confidence,
 					})
 				}
 
