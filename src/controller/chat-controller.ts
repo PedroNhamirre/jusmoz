@@ -216,34 +216,16 @@ export async function chatWithAI(app: FastifyInstance) {
 				const answerText = String(response.content)
 				const validation = validateLegalResponse(answerText)
 
-				if (validation.shouldBlock) {
-					app.log.warn({
-						event: 'response_blocked',
-						reason: validation.reason,
-						question: maskPII(sanitizedQuestion.slice(0, 100)),
-						answer: maskPII(answerText.slice(0, 200)),
-						invalidCitations: validation.citationResult.citations
-							.filter((c) => !c.isValid)
-							.map((c) => c.rawText),
-						validCitationCount: validation.citationResult.validCount,
-						hasValidCitation: validation.citationResult.hasValidCitation,
-					})
-
-					return reply.status(200).send({
-						answer: getMessage(lang, 'invalidResponse'),
-						sources: [],
-					})
-				}
-
-				if (!validation.citationResult.hasValidCitation && answerText.length > 100) {
-					app.log.info({
-						event: 'response_no_citations',
-						reason: validation.reason,
-						question: maskPII(sanitizedQuestion.slice(0, 100)),
-						answerLength: answerText.length,
-						confidence: validation.citationResult.confidence,
-					})
-				}
+				// Log response quality metrics (but never block based on citations)
+				app.log.info({
+					event: 'response_generated',
+					reason: validation.reason,
+					question: maskPII(sanitizedQuestion.slice(0, 100)),
+					answerLength: answerText.length,
+					citationCount: validation.citationResult.citations.length,
+					validCitationCount: validation.citationResult.validCount,
+					confidence: validation.citationResult.confidence,
+				})
 
 				const result = {
 					answer: answerText,

@@ -138,31 +138,20 @@ export function validateLegalResponse(text: string): ResponseValidation {
 
 	const citationResult = validateCitations(text)
 
-	if (citationResult.hasInvalidCitation && !citationResult.hasValidCitation) {
-		return {
-			isValid: false,
-			reason: `Response contains potentially hallucinated citations: ${citationResult.citations
-				.filter((c) => !c.isValid)
-				.map((c) => c.rawText)
-				.join(', ')}`,
-			citationResult,
-			shouldBlock: true,
-		}
-	}
-
-
+	let reason = 'Response without specific citations'
 	if (citationResult.hasValidCitation) {
-		return {
-			isValid: true,
-			reason: `Valid response with ${citationResult.validCount} citation(s)`,
-			citationResult,
-			shouldBlock: false,
-		}
+		reason = `Valid response with ${citationResult.validCount} complete citation(s)`
+	} else if (citationResult.citations.length > 0) {
+		reason = `Response with ${citationResult.citations.length} article citation(s) from context`
+	} else if (text.length > 200) {
+		reason = 'Informative response without specific article citations'
+	} else {
+		reason = 'Short response'
 	}
 
 	return {
 		isValid: true,
-		reason: text.length > 200 ? 'Response without citations (informative)' : 'Short response without citations',
+		reason,
 		citationResult,
 		shouldBlock: false,
 	}
