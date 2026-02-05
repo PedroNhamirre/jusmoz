@@ -30,6 +30,11 @@ export const PineconeService = {
 					type: doc.metadata.type,
 					jurisdiction: doc.metadata.jurisdiction,
 					processedAt: doc.metadata.processedAt,
+					// Metadados enriquecidos (universal)
+					chapter: doc.metadata.chapter || '',
+					section: doc.metadata.section || '',
+					articleRange: doc.metadata.articleRange || '',
+					keywords: doc.metadata.keywords || '',
 				}
 			})
 
@@ -57,12 +62,12 @@ export const PineconeService = {
 		const vectorStore = await getVectorStore()
 
 		// Buscar mais documentos inicialmente (oversampling)
-		const oversamplingFactor = 1.5
+		const oversamplingFactor = 2
 		const initialLimit = Math.ceil(limit * oversamplingFactor)
 
 		const docs = await vectorStore.similaritySearch(query, initialLimit)
 
-		// Reranking simples: priorizar documentos com números específicos (artigos, porcentagens)
+		// Reranking baseado em qualidade do conteúdo
 		const rankedDocs = docs.map((doc) => {
 			let score = 0
 
@@ -77,10 +82,20 @@ export const PineconeService = {
 			}
 
 			// Bonus para documentos com parágrafos numerados
-			if (
-				/par[áa]grafo\s+\d+|paragraph\s+\d+|n[º°]\s*\d+/i.test(doc.pageContent)
-			) {
+			if (/par[áa]grafo\s+\d+|paragraph\s+\d+|n[º°]\s*\d+/i.test(doc.pageContent)) {
 				score += 1
+			}
+
+			// Bonus se o documento tem keywords nos metadados
+			const keywords = (doc.metadata.keywords as string) || ''
+			if (keywords) {
+				score += 0.5
+			}
+
+			// Bonus por capítulo definido
+			const chapter = (doc.metadata.chapter as string) || ''
+			if (chapter) {
+				score += 0.5
 			}
 
 			return { doc, score }
