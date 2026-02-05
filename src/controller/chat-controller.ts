@@ -25,16 +25,8 @@ import {
 } from '@/lib/security.js'
 import { PineconeService } from '@/services/pinecone-service.js'
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
 const MAX_QUESTION_LENGTH = 1000
-const CACHE_TTL_MS = 300000 // 5 minutes
-
-// ============================================================================
-// LOCALIZED MESSAGES
-// ============================================================================
+const CACHE_TTL_MS = 300000
 
 const MESSAGES = {
 	pt: {
@@ -72,10 +64,6 @@ function getMessage(
 	return MESSAGES[lang][key]
 }
 
-// ============================================================================
-// SYSTEM PROMPT - Hardened against injection
-// ============================================================================
-
 function buildSystemPrompt(
 	contextText: string,
 	lang: SupportedLanguage,
@@ -104,26 +92,20 @@ function buildSystemPrompt(
 ${historyContext}
 ## REGRAS DE RESPOSTA
 - ${langInstruction}
+- Responda como um advogado experiente responderia a um cliente.
 - OBRIGATÓRIO: Cite artigos específicos no formato "Artigo X da Lei Y/AAAA" ou "Artigo X, nº Y da Lei Z/AAAA".
-- Use exatamente as referências de lei que aparecem no CONTEXTO LEGAL abaixo.
-- Se a informação NÃO estiver no CONTEXTO LEGAL abaixo, diga claramente que não possui essa informação na base de dados.
-- NUNCA invente ou "adivinhe" artigos ou números.
-- Seja conciso e direto.
-- Se houver contexto de conversa anterior, use-o para entender melhor a pergunta atual.
+- NUNCA mencione termos técnicos internos como "contexto", "documentos fornecidos", "base de dados", "DOC", etc.
+- Se não tiver informação suficiente, diga naturalmente: "Esta questão específica não está coberta na legislação que tenho disponível" ou similar.
+- Seja direto e profissional.
 
-## CONTEXTO LEGAL (BASE DE CONHECIMENTO)
+## BASE DE CONHECIMENTO
 ${contextText}
 
-## PROCESSO DE RESPOSTA
-1. Considere o contexto da conversa anterior (se houver).
-2. Localize os artigos relevantes no CONTEXTO LEGAL.
-3. Se encontrar: cite com precisão usando a referência exata da lei do contexto.
-4. Se não encontrar: informe que a base de dados não contém essa informação específica.`
+## FORMATO DA RESPOSTA
+- Responda diretamente à pergunta do utilizador.
+- Cite os artigos relevantes de forma natural no texto.
+- Se não encontrar a informação, seja honesto sem mencionar aspectos técnicos.`
 }
-
-// ============================================================================
-// CHAT ENDPOINT
-// ============================================================================
 
 export async function chatWithAI(app: FastifyInstance) {
 	app.withTypeProvider<ZodTypeProvider>().post(
@@ -150,15 +132,8 @@ export async function chatWithAI(app: FastifyInstance) {
 		},
 		async (request, reply) => {
 			const { question, limit, conversationHistory = [] } = request.body
-
-			// ================================================================
-			// STEP 1: Language Detection
-			// ================================================================
 			const lang = detectLanguage(question)
 
-			// ================================================================
-			// STEP 2: Input Length Validation
-			// ================================================================
 			if (question.length > MAX_QUESTION_LENGTH) {
 				return reply.status(400).send({
 					error: 'Bad Request',
@@ -166,14 +141,7 @@ export async function chatWithAI(app: FastifyInstance) {
 				})
 			}
 
-			// ================================================================
-			// STEP 3: Sanitization
-			// ================================================================
 			const sanitizedQuestion = question.replace(/\s+/g, ' ').trim()
-
-			// ================================================================
-			// STEP 4: Prompt Injection Detection (Multi-layer)
-			// ================================================================
 			const injectionCheck = checkPromptInjection(sanitizedQuestion)
 			if (!injectionCheck.isSafe) {
 				app.log.warn({
@@ -189,9 +157,6 @@ export async function chatWithAI(app: FastifyInstance) {
 				})
 			}
 
-			// ================================================================
-			// STEP 5: Cache Check (with hashed key for privacy)
-			// ================================================================
 			const safeLimit = Math.min(Math.max(limit ?? 5, 1), 10)
 			const cacheKey = hashCacheKey(sanitizedQuestion, safeLimit)
 
@@ -214,9 +179,6 @@ export async function chatWithAI(app: FastifyInstance) {
 
 			reply.header('X-Cache', 'MISS')
 
-			// ================================================================
-			// STEP 6: RAG - Retrieve Context with Timeout
-			// ================================================================
 			try {
 				const contextDocs = await withTimeout(
 					PineconeService.retrieveRelevantDocs(sanitizedQuestion, safeLimit),
@@ -234,17 +196,12 @@ export async function chatWithAI(app: FastifyInstance) {
 					})
 				}
 
-				// Build context with source tracking
 				const contextText = contextDocs
-					.map(
-						(doc, index) =>
-							`[DOC ${index + 1}] (Fonte: ${doc.metadata.source}): ${doc.pageContent}`,
-					)
+					.map((doc) => {
+						const source = doc.metadata.source || 'Legislação Moçambicana'
+						return `--- ${source} ---\n${doc.pageContent}`
+					})
 					.join('\n\n')
-
-				// ================================================================
-				// STEP 7: LLM Invocation with Timeout and Token Limits
-				// ================================================================
 				const response = await invokeWithTimeout(
 					[
 						['system', buildSystemPrompt(contextText, lang, conversationHistory)],
@@ -254,10 +211,6 @@ export async function chatWithAI(app: FastifyInstance) {
 				)
 
 				const answerText = String(response.content)
-
-				// ================================================================
-				// STEP 8: Response Validation (Citation + Hallucination Check)
-				// ================================================================
 				const validation = validateLegalResponse(answerText)
 
 				if (validation.shouldBlock) {
@@ -276,9 +229,6 @@ export async function chatWithAI(app: FastifyInstance) {
 					})
 				}
 
-				// ================================================================
-				// STEP 9: Build Response with Structured Citations
-				// ================================================================
 				const result = {
 					answer: answerText,
 					sources: contextDocs.map((doc) =>
@@ -297,9 +247,6 @@ export async function chatWithAI(app: FastifyInstance) {
 				await cacheManager.set(cacheKey, result, CACHE_TTL_MS)
 				return reply.status(200).send(result)
 			} catch (error) {
-				// ================================================================
-				// ERROR HANDLING - Differentiate timeout vs other errors
-				// ================================================================
 				if (
 					error instanceof LLMTimeoutError ||
 					error instanceof PineconeTimeoutError

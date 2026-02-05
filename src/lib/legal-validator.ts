@@ -1,8 +1,3 @@
-// ============================================================================
-// LEGAL CITATION VALIDATOR FOR MOZAMBIQUE LEGISLATION
-// Universal validator for any Mozambican law - not specific to any single law
-// ============================================================================
-
 export interface Citation {
 	law: string
 	article: number
@@ -20,13 +15,9 @@ export interface CitationValidationResult {
 	confidence: 'high' | 'medium' | 'low' | 'none'
 }
 
-// Regex patterns for citation extraction
 const CITATION_PATTERNS = [
-	// Portuguese with law: "Artigo 23 da Lei 13/2023" or "Lei 13/2023, Artigo 23"
 	/(?:lei\s+(\d+\/\d{4})[,\s]+)?artigos?\s*(\d+)(?:\s*,?\s*n[º°]?\s*(\d+))?(?:\s+da\s+lei\s+(\d+\/\d{4}))?/gi,
 	/(?:lei\s+(\d+\/\d{4})[,\s]+)?art\.?\s*(\d+)(?:\s*,?\s*n[º°]?\s*(\d+))?(?:\s+da\s+lei\s+(\d+\/\d{4}))?/gi,
-
-	// English: "Article 23 of Law 13/2023" or "Law 13/2023, Article 23"
 	/(?:law\s+(\d+\/\d{4})[,\s]+)?articles?\s*(\d+)(?:\s*,?\s*(?:paragraph|para?\.?)\s*(\d+))?(?:\s+of\s+law\s+(\d+\/\d{4}))?/gi,
 ]
 
@@ -56,11 +47,10 @@ export function extractCitations(text: string): Citation[] {
 			}
 			seen.add(uniqueKey)
 
-			// Accept any citation with proper law reference and positive article number
 			const isValidFormat =
 				lawReference !== 'unknown' &&
 				articleNumber > 0 &&
-				articleNumber < 10000 && // Sanity check
+				articleNumber < 10000 &&
 				/^\d+\/\d{4}$/.test(lawReference)
 
 			citations.push({
@@ -104,7 +94,6 @@ export function validateCitations(text: string): CitationValidationResult {
 	}
 }
 
-// Check if a response is a refusal/uncertainty response
 export function isRefusalResponse(text: string): boolean {
 	const refusalPatterns = [
 		/não\s*(posso|consigo|encontrei)/i,
@@ -123,7 +112,6 @@ export function isRefusalResponse(text: string): boolean {
 	return refusalPatterns.some((pattern) => pattern.test(text))
 }
 
-// Validate response quality for legal context
 export interface ResponseValidation {
 	isValid: boolean
 	reason: string
@@ -132,7 +120,6 @@ export interface ResponseValidation {
 }
 
 export function validateLegalResponse(text: string): ResponseValidation {
-	// Check if it's a refusal - these are always valid
 	if (isRefusalResponse(text)) {
 		return {
 			isValid: true,
@@ -151,7 +138,6 @@ export function validateLegalResponse(text: string): ResponseValidation {
 
 	const citationResult = validateCitations(text)
 
-	// If the response contains invalid citations (hallucinated articles)
 	if (citationResult.hasInvalidCitation && !citationResult.hasValidCitation) {
 		return {
 			isValid: false,
@@ -164,7 +150,6 @@ export function validateLegalResponse(text: string): ResponseValidation {
 		}
 	}
 
-	// If no citations at all in a legal response
 	if (!citationResult.hasValidCitation && text.length > 200) {
 		return {
 			isValid: false,
@@ -174,7 +159,6 @@ export function validateLegalResponse(text: string): ResponseValidation {
 		}
 	}
 
-	// Valid response with citations
 	if (citationResult.hasValidCitation) {
 		return {
 			isValid: true,
@@ -184,7 +168,6 @@ export function validateLegalResponse(text: string): ResponseValidation {
 		}
 	}
 
-	// Short response without citations - might be okay for simple answers
 	return {
 		isValid: true,
 		reason: 'Short response without citations (may need review)',
