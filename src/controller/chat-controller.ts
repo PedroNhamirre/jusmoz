@@ -243,7 +243,6 @@ export async function chatWithAI(app: FastifyInstance) {
 					confidence: validation.citationResult.confidence,
 				}
 
-				// Cache and return
 				await cacheManager.set(cacheKey, result, CACHE_TTL_MS)
 				return reply.status(200).send(result)
 			} catch (error) {

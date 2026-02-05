@@ -22,8 +22,6 @@ export const SearchQuerySchema = z.object({
 
 export type SearchQueryInput = z.infer<typeof SearchQuerySchema>
 
-// --- Schemas de Resposta (Output) ---
-
 export const UpsertResponseSchema = z.object({
 	message: z.string(),
 	chunks: z.number().describe('Number of text segments processed and stored'),
@@ -39,7 +37,6 @@ export const RetrieveResponseSchema = z.object({
 	),
 })
 
-// Structured citation schema for validation
 export const CitationSchema = z.object({
 	law: z.string().describe('Law reference (e.g., "13/2023")'),
 	article: z.number().describe('Article number'),

@@ -13,6 +13,11 @@ Jusmoz is a specialized legal AI assistant focused on Mozambican Law. It leverag
 - **Vector Search**: fast semantic search using Pinecone to retrieve relevant legal provisions.
 - **API Documentation**: interactive Swagger/Scalar documentation available at `/docs`.
 - **Validation**: uses Zod for strict runtime environment and request payload validation.
+- **Security Features**: prompt injection detection, PII masking, legal response validation, and HTTPS enforcement.
+- **Rate Limiting**: configurable rate limits per endpoint to prevent abuse.
+- **CORS Support**: configurable CORS with origins, methods, and headers.
+- **Caching**: intelligent caching system for frequently asked questions.
+- **Multi-language Support**: automatic language detection (Portuguese/English) with appropriate responses.
 
 ## Installation
 
@@ -51,16 +56,37 @@ To run the built production version:
 pnpm start
 ```
 
-The server defaults to port `8080`.
+The server defaults to port `3000`.
 
 ### API Endpoints
 
-- **POST /chat**: Interacts with the AI assistant.
-  - Body: `{ "question": "Qual é a pena para furto?" }`
-- **POST /documents**: Uploads/indexes a new document (Requires `x-api-key`).
-  - Body: `{ "url": "https://example.com/lei.pdf" }` or `{ "filePath": "/path/to/local/file.pdf" }`
+#### Public Endpoints
 
-API Documentation is available at `http://localhost:8080/docs`.
+- **GET /health**: Health check endpoint.
+  - Response: `{ "status": "ok", "timestamp": "2024-01-01T00:00:00.000Z", "uptime": 123.45 }`
+
+- **POST /chat**: Interacts with the AI assistant about Mozambican Law.
+  - Body: `{ "question": "Qual é o período de férias segundo a lei do trabalho?", "limit": 5, "conversationHistory": [] }`
+  - Response: AI-generated answer with legal citations and sources
+  - Rate limit: 10 requests per minute
+
+#### Protected Endpoints (Requires `x-api-key` header)
+
+- **POST /documents**: Upload and process a law document from URL.
+  - Body: `{ "url": "https://example.com/lei.pdf" }`
+  - Response: `{ "message": "Document uploaded and processed successfully", "chunks": 150 }`
+
+- **POST /documents/upload**: Upload and process a law document from file.
+  - Body: multipart/form-data with PDF file
+  - Response: `{ "message": "Document uploaded and processed successfully", "chunks": 150 }`
+
+- **GET /documents**: Retrieve legal context from Pinecone vector database.
+  - Query: `?question=example&limit=5`
+  - Response: Array of relevant document chunks with metadata
+
+#### Documentation
+
+Interactive API documentation is available at `http://localhost:3000/docs`.
 
 ## Technologies
 
@@ -84,6 +110,9 @@ The application requires the following environment variables to be set in a `.en
 | `PINECONE_INDEX_NAME` | Pinecone index name |
 | `PINECONE_INDEX_HOST` | Pinecone index URL (must start with https://) |
 | `PINECONE_INDEX_NAMESPACE` | Optional namespace (default: `__default__`) |
+| `CORS_ORIGIN` | Allowed origins for CORS (default: `http://localhost:3000`, comma-separated) |
+| `CORS_METHODS` | Allowed HTTP methods (default: `POST,GET,OPTIONS`, comma-separated) |
+| `CORS_ALLOWED_HEADERS` | Allowed headers (default: `Content-Type,x-api-key`, comma-separated) |
 
 ## Requirements
 
@@ -104,7 +133,12 @@ The application requires the following environment variables to be set in a `.en
 - `src/services/`: Business logic.
   - `process-pdf.ts`: PDF parsing, cleaning, and splitting logic.
   - `pinecone-service.ts`: Interaction with vector database.
-- `src/lib/`: External library clients (LangChain, Pinecone initialization).
+- `src/lib/`: External library clients and utilities.
+  - `langchain.ts`: LangChain and Groq LLM configuration.
+  - `pinecone.ts`: Pinecone vector database initialization.
+  - `cache.ts`: Caching implementation for improved performance.
+  - `security.ts`: Security utilities (PII masking, injection detection, language detection).
+  - `legal-validator.ts`: Legal response validation.
 
 ## Contributing
 

@@ -37,7 +37,6 @@ export async function upsertDocument(app: FastifyInstance) {
 		async (request, reply) => {
 			const { url } = request.body
 
-			// Security: Validate URL is HTTPS and not localhost/private IP
 			const urlObj = new URL(url)
 			if (urlObj.protocol !== 'https:' && !url.startsWith('http://localhost')) {
 				return reply.status(400).send({
@@ -97,7 +96,6 @@ export async function uploadDocumentFile(app: FastifyInstance) {
 					})
 				}
 
-				// Check if it's a PDF
 				if (data.mimetype !== 'application/pdf') {
 					return reply.status(400).send({
 						error: 'Bad Request',
@@ -105,10 +103,7 @@ export async function uploadDocumentFile(app: FastifyInstance) {
 					})
 				}
 
-				// Read file buffer
 				const buffer = await data.toBuffer()
-
-				// Process the document
 				const documents = await ProcessDocument(buffer)
 				await PineconeService.upsertLawChunks(documents)
 
