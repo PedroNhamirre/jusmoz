@@ -1,15 +1,49 @@
 import type { Document } from '@langchain/core/documents'
 import { getVectorStore } from '@/lib/langchain.js'
-import { pineconeNamespace } from '@/lib/pinecone.js'
+import { pineconeIndex, pineconeNamespace } from '@/lib/pinecone.js'
 import type { UpsertOptions } from '@/services/types.js'
 
 export const PineconeService = {
+	/**
+	 * Deleta todos os chunks de um documento específico antes de re-inserir
+	 */
+	async deleteDocumentChunks(source: string): Promise<number> {
+		const sanitizedSource = source.replace(/[\s/]/g, '_')
+		const prefix = `${sanitizedSource}#chunk`
+
+		try {
+			// Listar IDs que começam com o prefixo do documento
+			const listResult = await pineconeIndex.namespace('jusmoz').listPaginated({
+				prefix,
+				limit: 1000,
+			})
+
+			const ids = listResult.vectors?.map((v) => v.id) || []
+
+			if (ids.length > 0) {
+				await pineconeNamespace.deleteMany(ids)
+				console.info(`Deleted ${ids.length} existing chunks for ${source}`)
+			}
+
+			return ids.length
+		} catch (error) {
+			console.warn(`Could not delete old chunks: ${error}`)
+			return 0
+		}
+	},
+
 	async upsertLawChunks(
 		documents: Document[],
 		options: UpsertOptions = { batchSize: 50 },
 	): Promise<void> {
 		const { batchSize = 50 } = options
 		const totalDocuments = documents.length
+
+		// Identificar fontes únicas e deletar chunks antigos
+		const sources = [...new Set(documents.map((d) => String(d.metadata.source)))]
+		for (const source of sources) {
+			await this.deleteDocumentChunks(source)
+		}
 
 		console.info(`Starting synchronization of ${totalDocuments} documents.`)
 
